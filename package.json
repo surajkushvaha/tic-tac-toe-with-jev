@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun build ./src/main.ts --outfile ./app.js",
+    "build": "bun build ./src/main.ts --outfile ./public/app.js",
     "start": "bun run build && bunx vercel dev",
     "dev": "bunx vercel dev"
   }
