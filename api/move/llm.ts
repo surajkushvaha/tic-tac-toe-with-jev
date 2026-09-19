@@ -13,22 +13,18 @@ function json(body: Record<string, unknown>, status = 200) {
   });
 }
 
-export default async function handler(req: Request) {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type,Authorization',
-      },
-    });
-  }
+export function OPTIONS(req: Request) {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+    },
+  });
+}
 
-  if (req.method !== 'POST') {
-    return json({ error: 'Method not allowed' }, 405);
-  }
-
+export async function POST(req: Request) {
   try {
     const text = await req.text();
     if (!text) return json({ error: 'Request body must be valid JSON.' }, 400);
@@ -36,7 +32,7 @@ export default async function handler(req: Request) {
     return await handleLlmMove(body);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal server error';
-    console.error(`[Error] /api/move/llm: ${message}`);
+    console.error(`[Error] /api/move/llm POST: ${message}`);
     return json({ error: message }, 500);
   }
 }
