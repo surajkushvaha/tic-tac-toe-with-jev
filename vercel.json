@@ -1,0 +1,9 @@
+{
+  "buildCommand": "bun run build",
+  "framework": null,
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "bun@1.x"
+    }
+  }
+}

@@ -32,6 +32,12 @@ export async function saveGame(record: GameRecord): Promise<void> {
   games.push(record);
   cache = games;
 
+  // On Vercel, the file system is read-only. We skip writing to disk.
+  // The history will live in memory until the serverless function cold-starts.
+  if (Bun.env.VERCEL || Bun.env.VERCEL_ENV) {
+    return;
+  }
+
   // Ensure data/ directory exists (Bun.write creates parent dirs)
   const path = historyPath();
   const dir = path.replace(/[\\/][^\\/]+$/, '');

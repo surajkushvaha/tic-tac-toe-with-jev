@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "bun build ./src/main.ts --outfile ./app.js",
-    "start": "bun run build && bun run server/main.ts",
-    "dev": "bun --watch server/main.ts"
+    "start": "bun run build && bunx vercel dev",
+    "dev": "bunx vercel dev"
   }
 }
