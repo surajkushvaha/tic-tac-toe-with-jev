@@ -1,6 +1,5 @@
 import { type Seat, CELL_NAMES } from './types';
 import { getLlmKey, getLlmBase, getLlmModel } from './env';
-import { buildHistoryContext } from './history';
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -16,6 +15,7 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
 export async function handleLlmMove(body: Record<string, unknown>): Promise<Response> {
   const board = body.board as Array<Seat | null>;
   const seat = body.seat as Seat;
+  const historyAdvice = body.historyAdvice as string | undefined;
   const model = (body.model as string) || getLlmModel();
 
   if (!Array.isArray(board) || board.length !== 9) {
@@ -33,9 +33,6 @@ export async function handleLlmMove(body: Record<string, unknown>): Promise<Resp
   // Build the grid display
   const cellStr = (idx: number) => board[idx] ?? String(idx);
   const grid = [0, 3, 6].map(r => ` ${cellStr(r)} | ${cellStr(r + 1)} | ${cellStr(r + 2)} `).join('\n---+---+---\n');
-
-  // Get history context
-  const historyAdvice = await buildHistoryContext(board, seat);
 
   // Build system prompt with history
   let systemPrompt =

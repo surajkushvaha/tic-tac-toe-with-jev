@@ -1,50 +1,29 @@
-import { type Seat, type GameRecord, type HistoryInsight, CELL_NAMES, otherSeat } from './types';
-import { getRoot } from './env';
+import { type Seat, type GameRecord, type HistoryInsight, CELL_NAMES } from './types';
 
-import { mkdirSync, promises as fsPromises } from 'fs';
+const STORE_KEY = 'ttt-jev-arena-history';
 
-// ── Storage ──────────────────────────────────────────────────────────────────
-
-let cache: GameRecord[] | null = null;
-
-function historyPath() {
-  return `${process.cwd()}/data/history.json`;
-}
-
-async function loadHistory(): Promise<GameRecord[]> {
-  if (cache) return cache;
+export function loadHistory(): GameRecord[] {
   try {
-    const text = await fsPromises.readFile(historyPath(), 'utf8');
-    cache = JSON.parse(text);
-    return cache || [];
+    const raw = localStorage.getItem(STORE_KEY);
+    if (raw) return JSON.parse(raw);
   } catch {
-    return [];
+    // ignore
   }
+  return [];
 }
 
-export async function saveGame(record: GameRecord): Promise<void> {
-  const games = await loadHistory();
+export function saveGame(record: GameRecord): void {
+  const games = loadHistory();
   games.push(record);
-  cache = games;
-
-  // On Vercel, the file system is read-only. We skip writing to disk.
-  // The history will live in memory until the serverless function cold-starts.
-  if (process.env.VERCEL || process.env.VERCEL_ENV) {
-    return;
-  }
-
-  // Ensure data/ directory exists
-  const path = historyPath();
-  const dir = path.replace(/[\\/][^\\/]+$/, '');
   try {
-    mkdirSync(dir, { recursive: true });
-  } catch { /* already exists */ }
-
-  await fsPromises.writeFile(path, JSON.stringify(games, null, 2), 'utf8');
+    localStorage.setItem(STORE_KEY, JSON.stringify(games));
+  } catch (err) {
+    console.warn('Failed to save game to localStorage', err);
+  }
 }
 
-export async function getStats() {
-  const games = await loadHistory();
+export function getStats() {
+  const games = loadHistory();
   const byMode: Record<string, { total: number; xWins: number; oWins: number; draws: number }> = {};
 
   for (const g of games) {
@@ -59,37 +38,19 @@ export async function getStats() {
   return { totalGames: games.length, byMode };
 }
 
-// ── Board fingerprinting ─────────────────────────────────────────────────────
-
-/**
- * Create a canonical fingerprint for a board state.
- * Maps each cell to: 'M' (my mark), 'O' (opponent mark), '.' (empty)
- * This lets us match positions regardless of whether the AI played X or O.
- */
 function fingerprint(board: Array<Seat | null>, mySeat: Seat): string {
   return board.map(c => c === mySeat ? 'M' : c === null ? '.' : 'O').join('');
 }
 
-/**
- * Find all board states in a game record from the perspective of a given seat.
- * Returns each position + the move that was made from it + eventual outcome.
- */
-function extractPositions(game: GameRecord, seat: Seat): Array<{
-  fp: string;
-  moveIndex: number;
-  movePlayed: number;
-  won: boolean;
-  lost: boolean;
-}> {
+function extractPositions(game: GameRecord, seat: Seat) {
   const results: Array<{ fp: string; moveIndex: number; movePlayed: number; won: boolean; lost: boolean }> = [];
   const won = game.winner === seat;
   const lost = game.winner !== null && game.winner !== seat;
 
   for (let i = 0; i < game.boardStates.length && i < game.moves.length; i++) {
     const boardAtMove = game.boardStates[i];
-    // Determine whose turn it was
     const turnSeat: Seat = i % 2 === 0 ? 'X' : 'O';
-    if (turnSeat !== seat) continue; // Only positions where it was this seat's turn
+    if (turnSeat !== seat) continue;
 
     results.push({
       fp: fingerprint(boardAtMove, seat),
@@ -99,21 +60,13 @@ function extractPositions(game: GameRecord, seat: Seat): Array<{
       lost,
     });
   }
-
   return results;
 }
 
-// ── Pattern analysis ─────────────────────────────────────────────────────────
-
-export async function analyzePosition(
-  board: Array<Seat | null>,
-  seat: Seat
-): Promise<HistoryInsight> {
-  const games = await loadHistory();
+export function analyzePosition(board: Array<Seat | null>, seat: Seat): HistoryInsight {
+  const games = loadHistory();
   const currentFp = fingerprint(board, seat);
-  const moveCount = board.filter(c => c !== null).length;
 
-  // Find matching positions from past games
   const matches: Array<{ movePlayed: number; won: boolean; lost: boolean }> = [];
 
   for (const game of games) {
@@ -130,7 +83,6 @@ export async function analyzePosition(
   const lossesFromHere = matches.filter(m => m.lost).length;
   const drawsFromHere = totalGames - winsFromHere - lossesFromHere;
 
-  // Aggregate by move: which moves led to wins vs losses
   const moveStats = new Map<number, { wins: number; losses: number; total: number }>();
   for (const m of matches) {
     const s = moveStats.get(m.movePlayed) || { wins: 0, losses: 0, total: 0 };
@@ -150,8 +102,7 @@ export async function analyzePosition(
     .map(([move, s]) => ({ move, losses: s.losses, total: s.total }))
     .sort((a, b) => (b.losses / b.total) - (a.losses / a.total));
 
-  // Build advice string
-  const advice = buildAdvice(totalGames, winsFromHere, lossesFromHere, winningMoves, losingMoves, seat);
+  const advice = buildAdvice(totalGames, winsFromHere, lossesFromHere, winningMoves, losingMoves);
 
   return { totalGames, winsFromHere, lossesFromHere, drawsFromHere, winningMoves, losingMoves, advice };
 }
@@ -161,13 +112,10 @@ function buildAdvice(
   wins: number,
   losses: number,
   winningMoves: Array<{ move: number; wins: number; total: number }>,
-  losingMoves: Array<{ move: number; losses: number; total: number }>,
-  seat: Seat
+  losingMoves: Array<{ move: number; losses: number; total: number }>
 ): string {
   if (total === 0) return '';
-
   const parts: string[] = [];
-
   parts.push(`From this exact position in ${total} past game${total > 1 ? 's' : ''}: ${wins} win${wins !== 1 ? 's' : ''}, ${losses} loss${losses !== 1 ? 'es' : ''}, ${total - wins - losses} draw${total - wins - losses !== 1 ? 's' : ''}.`);
 
   if (winningMoves.length > 0) {
@@ -187,16 +135,4 @@ function buildAdvice(
   }
 
   return parts.join(' ');
-}
-
-/**
- * Build a history context string suitable for injecting into an AI prompt.
- * Works for both Jev (TypeSafe) and LLM (OpenAI-compatible).
- */
-export async function buildHistoryContext(
-  board: Array<Seat | null>,
-  seat: Seat
-): Promise<string> {
-  const insight = await analyzePosition(board, seat);
-  return insight.advice;
 }

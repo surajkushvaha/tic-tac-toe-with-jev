@@ -1,7 +1,6 @@
 import { type Seat, CELL_NAMES, otherSeat, cellKind } from './types';
 import { getTypesafeKey, getTypesafeEndpoint } from './env';
 import { describeTactics } from './tactics';
-import { buildHistoryContext } from './history';
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -19,6 +18,7 @@ export async function handleJevMove(body: Record<string, unknown>): Promise<Resp
   const seat = body.seat as Seat;
   const model = (body.model as string) || 'jev-latest';
   const hints = body.hints !== false;
+  const historyAdvice = body.historyAdvice as string | undefined;
 
   if (!Array.isArray(board) || board.length !== 9) {
     return jsonResponse({ error: 'Invalid board state.' }, 400);
@@ -40,9 +40,6 @@ export async function handleJevMove(body: Record<string, unknown>): Promise<Resp
     const tags = hints ? describeTactics(board, i, seat) : [];
     criteria[String(i)] = `${CELL_NAMES[i]} ${cellKind(i)}${tags.length ? `: ${tags.join('; ')}` : ''}`;
   }
-
-  // Get history context
-  const historyAdvice = await buildHistoryContext(board, seat);
 
   // Build instructions with history learning
   let instructions =

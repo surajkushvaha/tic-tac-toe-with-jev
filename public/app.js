@@ -22,7 +22,7 @@ class Settings {
       const raw = localStorage.getItem(Settings.STORE);
       if (raw)
         this.values = { ...this.values, ...JSON.parse(raw) };
-    } catch { }
+    } catch {}
   }
   get(key) {
     return this.values[key];
@@ -40,7 +40,7 @@ class Settings {
         localStorage.setItem(Settings.STORE, JSON.stringify(this.values));
       else
         localStorage.removeItem(Settings.STORE);
-    } catch { }
+    } catch {}
   }
 }
 
@@ -76,6 +76,99 @@ async function fetchJson(url, init = {}) {
   return data;
 }
 
+// src/history.ts
+var STORE_KEY = "ttt-jev-arena-history";
+function loadHistory() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (raw)
+      return JSON.parse(raw);
+  } catch {}
+  return [];
+}
+function saveGame(record) {
+  const games = loadHistory();
+  games.push(record);
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify(games));
+  } catch (err) {
+    console.warn("Failed to save game to localStorage", err);
+  }
+}
+function fingerprint(board, mySeat) {
+  return board.map((c) => c === mySeat ? "M" : c === null ? "." : "O").join("");
+}
+function extractPositions(game, seat) {
+  const results = [];
+  const won = game.winner === seat;
+  const lost = game.winner !== null && game.winner !== seat;
+  for (let i = 0;i < game.boardStates.length && i < game.moves.length; i++) {
+    const boardAtMove = game.boardStates[i];
+    const turnSeat = i % 2 === 0 ? "X" : "O";
+    if (turnSeat !== seat)
+      continue;
+    results.push({
+      fp: fingerprint(boardAtMove, seat),
+      moveIndex: i,
+      movePlayed: game.moves[i],
+      won,
+      lost
+    });
+  }
+  return results;
+}
+function analyzePosition(board, seat) {
+  const games = loadHistory();
+  const currentFp = fingerprint(board, seat);
+  const matches = [];
+  for (const game of games) {
+    const positions = extractPositions(game, seat);
+    for (const pos of positions) {
+      if (pos.fp === currentFp) {
+        matches.push({ movePlayed: pos.movePlayed, won: pos.won, lost: pos.lost });
+      }
+    }
+  }
+  const totalGames = matches.length;
+  const winsFromHere = matches.filter((m) => m.won).length;
+  const lossesFromHere = matches.filter((m) => m.lost).length;
+  const drawsFromHere = totalGames - winsFromHere - lossesFromHere;
+  const moveStats = new Map;
+  for (const m of matches) {
+    const s = moveStats.get(m.movePlayed) || { wins: 0, losses: 0, total: 0 };
+    s.total++;
+    if (m.won)
+      s.wins++;
+    if (m.lost)
+      s.losses++;
+    moveStats.set(m.movePlayed, s);
+  }
+  const winningMoves = [...moveStats.entries()].filter(([_, s]) => s.wins > 0).map(([move, s]) => ({ move, wins: s.wins, total: s.total })).sort((a, b) => b.wins / b.total - a.wins / a.total);
+  const losingMoves = [...moveStats.entries()].filter(([_, s]) => s.losses > 0).map(([move, s]) => ({ move, losses: s.losses, total: s.total })).sort((a, b) => b.losses / b.total - a.losses / a.total);
+  const advice = buildAdvice(totalGames, winsFromHere, lossesFromHere, winningMoves, losingMoves);
+  return { totalGames, winsFromHere, lossesFromHere, drawsFromHere, winningMoves, losingMoves, advice };
+}
+function buildAdvice(total, wins, losses, winningMoves, losingMoves) {
+  if (total === 0)
+    return "";
+  const parts = [];
+  parts.push(`From this exact position in ${total} past game${total > 1 ? "s" : ""}: ${wins} win${wins !== 1 ? "s" : ""}, ${losses} loss${losses !== 1 ? "es" : ""}, ${total - wins - losses} draw${total - wins - losses !== 1 ? "s" : ""}.`);
+  if (winningMoves.length > 0) {
+    const best = winningMoves.slice(0, 3);
+    const desc = best.map((m) => `${CELL_NAMES[m.move]} (won ${m.wins}/${m.total})`).join(", ");
+    parts.push(`Moves that led to wins: ${desc}.`);
+  }
+  if (losingMoves.length > 0) {
+    const worst = losingMoves.slice(0, 3);
+    const desc = worst.map((m) => `${CELL_NAMES[m.move]} (lost ${m.losses}/${m.total})`).join(", ");
+    parts.push(`AVOID these moves that led to losses: ${desc}.`);
+  }
+  if (losses > wins && losses >= 2) {
+    parts.push(`You have been losing from this position. Focus on defense and blocking the opponent's threats.`);
+  }
+  return parts.join(" ");
+}
+
 // src/players.ts
 class HumanPlayer {
   kind = "human";
@@ -83,25 +176,17 @@ class HumanPlayer {
   get label() {
     return "You";
   }
-  get waiting() {
-    return this.resolve !== null;
-  }
-  choose(_board, _seat, { signal }) {
-    return new Promise((resolve, reject) => {
+  choose(board, seat, { signal }) {
+    return new Promise((resolve) => {
       this.resolve = resolve;
-      signal.addEventListener("abort", () => {
-        this.resolve = null;
-        reject(new DOMException("Aborted", "AbortError"));
-      }, { once: true });
-    });
+      signal.addEventListener("abort", () => this.resolve = null);
+    }).then((move) => ({ move }));
   }
   submit(move) {
-    if (!this.resolve)
-      return false;
-    const done = this.resolve;
-    this.resolve = null;
-    done({ move });
-    return true;
+    if (this.resolve) {
+      this.resolve(move);
+      this.resolve = null;
+    }
   }
 }
 
@@ -122,7 +207,12 @@ class ServerAIPlayer {
   }
   async choose(board, seat, { signal }) {
     const cfg = this.settings.snapshot();
-    const body = { board: board.board, seat };
+    const insight = analyzePosition(board.board, seat);
+    const body = {
+      board: board.board,
+      seat,
+      historyAdvice: insight.advice
+    };
     if (this.aiType === "jev") {
       body.model = cfg.jevModel || "jev-latest";
       body.hints = cfg.hints;
@@ -265,11 +355,7 @@ class App {
       boardStates: this.gameBoardStates
     };
     try {
-      await fetchJson("/api/history", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(record)
-      });
+      await saveGame(record);
     } catch (err) {
       console.warn("Failed to save game history:", err);
     }
@@ -381,7 +467,7 @@ class App {
     const layout = document.createElement("div");
     layout.className = "layout";
     layout.append(left, right);
-    app.append(header, layout /*,settingsPanel*/);
+    app.append(header, layout, settingsPanel);
     this.root.append(app);
     this.ui = { status, board, score, logList, runBtn, modes, settingsPanel };
     this.render();
@@ -489,7 +575,7 @@ class App {
     }
     ui.board.innerHTML = "";
     const winSet = new Set(this.board.result?.line ?? []);
-    for (let i = 0; i < 9; i++) {
+    for (let i = 0;i < 9; i++) {
       const mark = this.board.board[i];
       const cell = document.createElement("button");
       cell.type = "button";

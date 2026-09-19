@@ -2,6 +2,7 @@ import { type Seat, type GameState, type GameRecord, type MoveResult, LINES, CEL
 import { Settings } from './settings';
 import { HumanPlayer, ServerAIPlayer } from './players';
 import { buildSvg, fetchJson } from './ui';
+import { saveGame } from './history';
 
 const MODES = {
   'human-jev': { title: 'You vs Jev', a: 'human', b: 'jev', auto: false },
@@ -160,11 +161,7 @@ export class App {
     };
 
     try {
-      await fetchJson('/api/history', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(record),
-      });
+      await saveGame(record);
     } catch (err) {
       console.warn('Failed to save game history:', err);
     }
