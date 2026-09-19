@@ -1,29 +1,24 @@
 import { type Seat, type GameRecord, type HistoryInsight, CELL_NAMES, otherSeat } from './types';
 import { getRoot } from './env';
 
-declare const Bun: {
-  file(path: string): {
-    text(): Promise<string>;
-    exists(): Promise<boolean>;
-  };
-  write(path: string, data: string): Promise<number>;
-};
-
-const historyPath = () => `${getRoot()}/data/history.json`;
+import { mkdirSync, promises as fsPromises } from 'fs';
 
 // ── Storage ──────────────────────────────────────────────────────────────────
 
 let cache: GameRecord[] | null = null;
 
-export async function loadHistory(): Promise<GameRecord[]> {
+function historyPath() {
+  return `${process.cwd()}/data/history.json`;
+}
+
+async function loadHistory(): Promise<GameRecord[]> {
   if (cache) return cache;
   try {
-    const text = await Bun.file(historyPath()).text();
-    cache = JSON.parse(text) as GameRecord[];
-    return cache;
+    const text = await fsPromises.readFile(historyPath(), 'utf8');
+    cache = JSON.parse(text);
+    return cache || [];
   } catch {
-    cache = [];
-    return cache;
+    return [];
   }
 }
 
@@ -34,19 +29,18 @@ export async function saveGame(record: GameRecord): Promise<void> {
 
   // On Vercel, the file system is read-only. We skip writing to disk.
   // The history will live in memory until the serverless function cold-starts.
-  if (Bun.env.VERCEL || Bun.env.VERCEL_ENV) {
+  if (process.env.VERCEL || process.env.VERCEL_ENV) {
     return;
   }
 
-  // Ensure data/ directory exists (Bun.write creates parent dirs)
+  // Ensure data/ directory exists
   const path = historyPath();
   const dir = path.replace(/[\\/][^\\/]+$/, '');
   try {
-    const { mkdirSync } = require('fs');
     mkdirSync(dir, { recursive: true });
   } catch { /* already exists */ }
 
-  await Bun.write(path, JSON.stringify(games, null, 2));
+  await fsPromises.writeFile(path, JSON.stringify(games, null, 2), 'utf8');
 }
 
 export async function getStats() {
