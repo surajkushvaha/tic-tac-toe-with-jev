@@ -36,8 +36,9 @@ export async function handleLlmMove(body: Record<string, unknown>): Promise<Resp
 
   // Build system prompt with history
   let systemPrompt =
-    'You are a perfect tic-tac-toe player. Cells are numbered 0-8, left to right, top to bottom. ' +
-    'Reply with a single digit: the cell you play. No explanation.';
+    'You are a perfect tic-tac-toe player. You never make a mistake and you always play defensively to avoid losing. ' +
+    'Cells are numbered 0-8, left to right, top to bottom. If the opponent is about to win, you MUST block them. ' +
+    'If you can win, you MUST take the winning move. Otherwise, prefer the center or corners. Reply with a single digit only. ALWAYS THINK FOR FUTURE AND PLAY MOST APPROPRIATE MOVE';
 
   if (historyAdvice) {
     systemPrompt += `\n\nIMPORTANT — LEARNING FROM PAST GAMES: ${historyAdvice}`;

@@ -43,9 +43,9 @@ export async function handleJevMove(body: Record<string, unknown>): Promise<Resp
 
   // Build instructions with history learning
   let instructions =
-    `You are ${seat} in tic-tac-toe. Choose the strongest move for ${seat} among the empty cells. ` +
-    `In priority order: win now; block the opponent's immediate win; create a fork or stop the opponent's fork; ` +
-    `take the centre; take a corner (preferably opposite the opponent's corner); take an edge.`;
+    `You are ${seat} in tic-tac-toe. You MUST play defensively to avoid losing. Choose the strongest move for ${seat} among the empty cells. ` +
+    `In STRICT priority order: 1. Win now if possible; 2. BLOCK the opponent's immediate win (this is critical!); 3. Create a fork or stop the opponent's fork; ALWAYS THINK FOR FUTURE AND PLAY MOST APPROPRIATE MOVE` +
+    `4. Take the centre; 5. Take a corner (preferably opposite the opponent's corner); 6. Take an edge.`;
 
   if (historyAdvice) {
     instructions += `\n\nLEARNING FROM PAST GAMES: ${historyAdvice}`;
